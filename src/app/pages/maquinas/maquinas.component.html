@@ -1,0 +1,109 @@
+
+<div class="container" style="padding: 20px;">
+  <!-- Barra de búsqueda -->
+  <div nz-row nzJustify="space-between" nzAlign="middle" class="mb-4">
+    <div nz-col nzSpan="24" nzMd="12">
+      <nz-input-group [nzSuffix]="suffixIconSearch">
+        <input 
+          type="text" 
+          nz-input 
+          [(ngModel)]="searchText" 
+          (input)="onSearch()" 
+          placeholder="Buscar productos..." 
+        />
+      </nz-input-group>
+      <ng-template #suffixIconSearch>
+        <span nz-icon nzType="search"></span>
+      </ng-template>
+    </div>
+  </div>
+
+  <!-- Mensaje de estado -->
+  @if (searchResultsMessage(); as message) {
+    <div class="mb-3">
+      @if (error()) {
+        <nz-alert 
+          [nzMessage]="message" 
+          nzType="error" 
+          nzShowIcon>
+        </nz-alert>
+      } @else {
+        <div class="text-muted">{{ message }}</div>
+      }
+    </div>
+  }
+
+  <!-- Lista de productos -->
+  <nz-spin [nzSpinning]="loading()">
+    <div class="products-grid">
+      @for (product of products(); track product.id) {
+        <div 
+          class="product-card"
+          nz-tooltip
+          [nzTooltipTitle]="product.title"
+          nzTooltipPlacement="top"
+        >
+          <nz-card 
+            [nzHoverable]="true" 
+            [nzCover]="coverTemplate" 
+            class="h-100"
+          >
+            <nz-card-meta 
+              [nzTitle]="product.title | slice:0:20" 
+              [nzDescription]="(product.description | slice:0:50) + '...'"
+            ></nz-card-meta>
+            <div class="mt-3">
+              <strong class="text-primary">{{ product.price | number:'1.2-2' }} €</strong>
+            </div>
+            <div class="mt-3 d-flex justify-content-between">
+              <button 
+                nz-button 
+                nzType="primary" 
+                nzSize="small"
+                (click)="addToCart(product)"
+              >
+                <span nz-icon nzType="shopping-cart"></span> Añadir
+              </button>
+              <button 
+                nz-button 
+                nzType="default" 
+                nzSize="small"
+                (click)="verDetalles(product)"
+              >
+                <span nz-icon nzType="eye"></span> Ver
+              </button>
+            </div>
+          </nz-card>
+          <ng-template #coverTemplate>
+            <img 
+              [src]="product.images[0] || 'assets/default-product.png'" 
+              [alt]="product.title"
+              (error)="handleImageError($event)"
+              style="height: 200px; object-fit: cover; width: 100%;"
+            />
+          </ng-template>
+        </div>
+      }
+    </div>
+
+    <!-- Mensaje cuando no hay productos -->
+    @if (!loading() && products().length === 0) {
+      <nz-empty [nzNotFoundContent]="'No se encontraron productos'"></nz-empty>
+    }
+  </nz-spin>
+
+  <!-- Paginación -->
+  @if (pagination() && pagination().total > 0) {
+    <div class="mt-4 d-flex justify-content-center">
+      <nz-pagination
+        [nzPageIndex]="currentPage()"
+        [nzTotal]="pagination().total"
+        [nzPageSize]="pagination().limit"
+        [nzShowSizeChanger]="true"
+        [nzPageSizeOptions]="[5, 10, 20, 50]"
+        (nzPageIndexChange)="onPageChange($event)"
+        (nzPageSizeChange)="onPageSizeChange($event)">
+      </nz-pagination>
+    </div>
+  }
+</div>

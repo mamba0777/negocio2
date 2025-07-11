@@ -1,0 +1,92 @@
+<div class="container" style="padding: 20px;">
+  <!-- Barra de búsqueda -->
+  <div nz-row nzJustify="space-between" nzAlign="middle" class="mb-4">
+    <div nz-col nzSpan="24" nzMd="12">
+      <nz-input-group [nzSuffix]="suffixIconSearch">
+        <input 
+          type="text" 
+          nz-input 
+          placeholder="Buscar productos..." 
+          [(ngModel)]="searchText" 
+          (input)="onSearch()"
+        />
+        <ng-template #suffixIconSearch>
+          <span nz-icon nzType="search"></span>
+        </ng-template>
+      </nz-input-group>
+    </div>
+  </div>
+
+  <!-- Mensaje de carga o error -->
+  @if (loading()) {
+    <div class="text-center my-5">
+      <nz-spin nzSimple [nzSize]="'large'"></nz-spin>
+      <p class="mt-2">Cargando productos...</p>
+    </div>
+  } @else if (error()) {
+    <nz-alert 
+      nzType="error" 
+      [nzMessage]="'Error'"
+      [nzDescription]="error()"
+      nzShowIcon>
+    </nz-alert>
+  } @else {
+    <!-- Lista de productos -->
+    <div nz-row [nzGutter]="[16, 16]">
+      @for (product of products(); track product.id) {
+        <div nz-col [nzXs]="24" [nzSm]="12" [nzMd]="8" [nzLg]="6">
+          <nz-card 
+            [nzHoverable]="true" 
+            class="h-100"
+          >
+            <nz-card-meta 
+              [nzTitle]="product.title | slice:0:20" 
+              [nzDescription]="(product.description | slice:0:50) + '...'"
+            ></nz-card-meta>
+            <div class="mt-3">
+              <strong class="text-primary">{{ product.price | number:'1.2-2' }} €</strong>
+            </div>
+            <div class="mt-3 d-flex justify-content-between">
+              <button 
+                nz-button 
+                nzType="primary" 
+                nzSize="small"
+                (click)="addToCart(product)"
+              >
+                <span nz-icon nzType="shopping-cart"></span> Añadir
+              </button>
+              <button 
+                nz-button 
+                nzType="default" 
+                nzSize="small"
+                (click)="verDetalles(product)"
+              >
+                <span nz-icon nzType="eye"></span> Ver
+              </button>
+            </div>
+          </nz-card>
+        </div>
+      }
+    </div>
+
+    <!-- Mensaje cuando no hay productos -->
+    @if (!loading() && products().length === 0) {
+      <nz-empty [nzNotFoundContent]="'No se encontraron productos'"></nz-empty>
+    }
+
+    <!-- Paginación -->
+    @if (pagination() && pagination().total > 0) {
+      <div class="mt-4 d-flex justify-content-center">
+        <nz-pagination
+          [nzPageIndex]="currentPage()"
+          [nzTotal]="pagination().total"
+          [nzPageSize]="pagination().limit"
+          [nzShowSizeChanger]="true"
+          [nzPageSizeOptions]="[5, 10, 20, 50]"
+          (nzPageIndexChange)="onPageChange($event)"
+          (nzPageSizeChange)="onPageSizeChange($event)">
+        </nz-pagination>
+      </div>
+    }
+  }
+</div>

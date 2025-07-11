@@ -1,0 +1,78 @@
+<div class="container" style="padding: 24px;">
+  <div class="carrito-header">
+    <h1>Mi Carrito</h1>
+    <button nz-button nzType="primary" (click)="vaciarCarrito()" *ngIf="items.length > 0">
+      <span nz-icon nzType="delete" style="margin-right: 8px;"></span>
+      Vaciar Carrito
+    </button>
+  </div>
+
+  <div class="carrito-vacio" *ngIf="items.length === 0">
+    <div class="vacio-content">
+      <span nz-icon nzType="shopping-cart" nzTheme="outline" style="font-size: 64px; color: #999;"></span>
+      <h2>Carrito vacío</h2>
+      <p>¡Agrega productos a tu carrito para comenzar!</p>
+      <button nz-button nzType="primary" routerLink="/maquinas">
+        Ver Productos
+      </button>
+    </div>
+  </div>
+   
+  <!-- parte para prueba, tengo que configurar -->
+  <div class="carrito-contenido" *ngIf="items.length > 0">
+    <nz-table [nzData]="items" nzBordered>
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Precio</th>
+          <th>Cantidad</th>
+          <th>Subtotal</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let item of items">
+          <td>
+            <div class="producto-info">
+              <img [src]="item.imagen" alt="{{item.nombre}}" class="producto-imagen">
+              <div class="producto-detalle">
+                <h4>{{item.nombre}}</h4>
+                <p class="referencia">Referencia: {{item.id}}</p>
+                <p class="categoria">{{item.categoria}}</p>
+              </div>
+            </div>
+          </td>
+          <td>
+            <p class="precio">${{item.precio | number:'1.2-2'}}</p>
+          </td>
+          <td>
+            <nz-input-number
+              [(ngModel)]="item.cantidad"
+              [nzMin]="1"
+              [nzMax]="10"
+              (ngModelChange)="actualizarCantidad(item.id, $event)">
+            </nz-input-number>
+          </td>
+          <td>
+            <p class="subtotal">${{(item.precio * item.cantidad) | number:'1.2-2'}}</p>
+          </td>
+          <td>
+            <button nz-button nzType="primary" nzShape="circle" (click)="removerItem(item.id)">
+              <span nz-icon nzType="close"></span>
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </nz-table>
+
+    <div class="carrito-total">
+      <div class="total-info">
+        <h3>Total</h3>
+        <p>${{total | number:'1.2-2'}}</p>
+      </div>
+      <button nz-button nzType="primary" nzSize="large" [disabled]="items.length === 0">
+        Proceder al Pago
+      </button>
+    </div>
+  </div>
+</div>

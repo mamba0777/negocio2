@@ -1,0 +1,164 @@
+<div class="container">
+  @if (esLista()) {
+    <!-- Mostrar tabla de usuarios en modo lista -->
+    <nz-card [nzTitle]="'Lista de Usuarios'" [nzBordered]="true" class="mb-4">
+      <button nz-button nzType="primary" class="mb-3" (click)="mostrarFormularioNuevo()">
+        <i nz-icon nzType="plus"></i> Nuevo Usuario
+      </button>
+      
+      <nz-table
+        #basicTable
+        [nzData]="listOfData"
+        [nzLoading]="loading()"
+        [nzPageSize]="5"
+        nzShowSizeChanger
+        [nzTotal]="listOfData.length"
+        nzShowQuickJumper
+        [nzShowTotal]="rangeTemplate"
+      >
+        <ng-template #rangeTemplate let-range="range" let-total>
+          {{ range[0] }}-{{ range[1] }} de {{ total }} usuarios
+        </ng-template>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Correo</th>
+            <th>Rol</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (data of basicTable.data; track data.id) {
+            <tr>
+              <td>{{ data.id }}</td>
+              <td>{{ data.name }}</td>
+              <td>{{ data.email }}</td>
+              <td>
+                <nz-tag [nzColor]="getRoleColor(data.role)">{{ data.role }}</nz-tag>
+              </td>
+              <td>
+                <button nz-button nzType="link" nzSize="small" (click)="editarUsuario(data)">
+                  <i nz-icon nzType="edit" nzTheme="outline"></i>
+                </button>
+                <nz-divider nzType="vertical"></nz-divider>
+                <button nz-button nzType="link" nzSize="small" nzDanger (click)="eliminarUsuario(data.id)">
+                  <i nz-icon nzType="delete" nzTheme="outline"></i>
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </nz-table>
+    </nz-card>
+  } @else {
+    <!-- Formulario de registro/edición -->
+    <div class="form-container">
+      <nz-card [nzTitle]="titulo()" [nzBordered]="true" class="form-card">
+        <form nz-form [formGroup]="form" class="auth-form" (keydown.enter)="$event.preventDefault()">
+          <nz-form-item>
+            <nz-form-control nzErrorTip="Por favor ingrese su nombre">
+              <nz-input-group nzSize="large">
+                <input 
+                  type="text" 
+                  nz-input 
+                  formControlName="name" 
+                  [placeholder]="esRegistro() ? 'Nombre completo' : 'Nombre'"
+                />
+              </nz-input-group>
+            </nz-form-control>
+          </nz-form-item>
+          
+          <nz-form-item>
+            <nz-form-control nzErrorTip="Por favor ingrese un correo válido">
+              <nz-input-group nzSize="large">
+                <input 
+                  nz-input 
+                  formControlName="email" 
+                  placeholder="Correo electrónico"
+                  [disabled]="!!editandoUsuario()"
+                />
+              </nz-input-group>
+            </nz-form-control>
+          </nz-form-item>
+
+          <!-- Campo de rol -->
+          <nz-form-item>
+            <nz-form-control nzErrorTip="Por favor seleccione un rol">
+              <nz-select 
+                nzSize="large" 
+                formControlName="role"
+                nzPlaceHolder="Seleccione un rol"
+              >
+                <nz-option nzValue="customer" nzLabel="Cliente"></nz-option>
+                <nz-option nzValue="admin" nzLabel="Administrador"></nz-option>
+              </nz-select>
+            </nz-form-control>
+          </nz-form-item>
+          
+          <nz-form-item>
+            <nz-form-control nzErrorTip="La contraseña debe tener al menos 6 caracteres">
+              <nz-input-group nzSize="large">
+                <input 
+                  [type]="passwordVisible ? 'text' : 'password'" 
+                  nz-input 
+                  formControlName="password" 
+                  [placeholder]="editandoUsuario() ? 'Dejar en blanco para no cambiar' : 'Contraseña'"
+                />
+                <span 
+                  nz-icon 
+                  [nzType]="passwordVisible ? 'eye-invisible' : 'eye'" 
+                  (click)="passwordVisible = !passwordVisible"
+                  class="password-toggle"
+                ></span>
+              </nz-input-group>
+            </nz-form-control>
+          </nz-form-item>
+          
+          @if (!editandoUsuario() || form.get('password')?.value) {
+            <nz-form-item>
+              <nz-form-control nzErrorTip="Las contraseñas no coinciden">
+                <nz-input-group nzSize="large">
+                  <input 
+                    [type]="confirmarPasswordVisible ? 'text' : 'password'" 
+                    nz-input 
+                    formControlName="confirmarPassword" 
+                    placeholder="Confirmar contraseña"
+                  />
+                  <span 
+                    nz-icon 
+                    [nzType]="confirmarPasswordVisible ? 'eye-invisible' : 'eye'" 
+                    (click)="confirmarPasswordVisible = !confirmarPasswordVisible"
+                    class="password-toggle"
+                  ></span>
+                </nz-input-group>
+              </nz-form-control>
+            </nz-form-item>
+          }
+
+          <div class="footer-links" style="margin-top: 24px; display: flex; justify-content: space-between;">
+            <button 
+              nz-button 
+              nzType="default" 
+              [disabled]="cargando()"
+              (click)="volverALista()"
+            >
+              <i nz-icon nzType="arrow-left" nzTheme="outline"></i> Volver a la lista
+            </button>
+            <button 
+              nz-button 
+              nzType="primary" 
+              nzSize="large"
+              [nzLoading]="cargando()"
+              [disabled]="form.invalid || cargando()"
+              type="button"
+              (click)="onSubmit($event)"
+            >
+              <i nz-icon nzType="save" nzTheme="outline"></i> {{ textoBoton() }}
+            </button>
+          </div>
+        </form>
+      </nz-card>
+    </div>
+  }
+</div>

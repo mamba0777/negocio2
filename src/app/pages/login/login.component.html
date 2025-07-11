@@ -1,0 +1,31 @@
+<div class="login-container">
+  <div class="login-card">
+    <h2 class="login-title">Iniciar Sesión</h2>
+    
+    <form nz-form [formGroup]="loginForm" (ngSubmit)="login()" class="login-form">
+      <nz-form-item>
+        <nz-form-control nzErrorTip="Por favor ingresa un correo válido" [nzErrorTip]="loginForm.get('email')?.errors?.['required'] ? 'El correo es requerido' : 'Correo inválido'">
+          <nz-input-group nzSize="large">
+            <input type="email" nz-input formControlName="email" placeholder="Correo electrónico" />
+          </nz-input-group>
+        </nz-form-control>
+      </nz-form-item>
+
+      <nz-form-item>
+        <nz-form-control nzErrorTip="La contraseña debe tener al menos 6 caracteres">
+          <nz-input-group nzSize="large">
+            <input type="password" nz-input formControlName="password" placeholder="Contraseña" />
+          </nz-input-group>
+        </nz-form-control>
+      </nz-form-item>
+
+      <button nz-button nzType="primary" nzSize="large" nzBlock [disabled]="loginForm.invalid" [nzLoading]="isLoading">
+        Iniciar Sesión
+      </button>
+    </form>
+
+    <div class="login-footer">
+      <p>¿No tienes una cuenta? <a routerLink="/registro">Regístrate</a></p>
+    </div>
+  </div>
+</div>
