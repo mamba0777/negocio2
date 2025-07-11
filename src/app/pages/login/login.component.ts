@@ -40,7 +40,7 @@ export class LoginComponent implements OnInit {
 
   ngOnInit() {
     // Si el usuario ya está autenticado, redirigir al dashboard
-    if (this.authService.isLoggedIn()) {
+    if (this.authService.loggedIn()) {
       this.router.navigate(['/welcome']);
     }
   }

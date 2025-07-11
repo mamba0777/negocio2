@@ -1,1 +1,48 @@
-<p>inventario trabajando!</p>
+<nz-card nzTitle="Gestión de Inventario">
+  <!-- Contenido solo para administradores -->
+  <div *appHasRole="'admin'">
+    <button nz-button nzType="primary" (click)="showModal()">
+      <span nz-icon nzType="plus"></span>
+      Agregar Producto
+    </button>
+
+    <nz-divider nzText="Lista de Productos" nzOrientation="left"></nz-divider>
+    
+    <nz-table #basicTable [nzData]="[]">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nombre</th>
+          <th>Categoría</th>
+          <th>Precio</th>
+          <th>Stock</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        
+      </tbody>
+    </nz-table>
+  </div>
+
+  <!-- Mensaje para usuarios sin permisos -->
+  <div *appHasRole="['user', 'guest']">
+    <nz-result
+      nzStatus="403"
+      nzTitle="403"
+      nzSubTitle="Lo siento, no tienes permiso para acceder a esta página.">
+      <div nz-result-extra>
+        <a nz-button nzType="primary" routerLink="/">Volver al inicio</a>
+      </div>
+    </nz-result>
+  </div>
+
+  <!-- Modal para agregar/editar producto -->
+  <nz-modal
+    [(nzVisible)]="isVisible"
+    nzTitle="Nuevo Producto"
+    (nzOnCancel)="handleCancel()"
+    (nzOnOk)="handleOk()">
+    <p>agregar nuevo producto</p>
+  </nz-modal>
+</nz-card>

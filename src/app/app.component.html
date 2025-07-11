@@ -51,6 +51,16 @@
         </ul>
       </li>
 
+      @if (isAdmin()) {
+        <li nz-submenu nzOpen nzTitle="Inventario" nzIcon="inventory">
+          <ul>
+            <li nz-menu-item nzMatchRouter>
+              <a routerLink="/inventario">Inventario</a>
+            </li>
+          </ul>
+        </li>
+      }
+
       <li nz-submenu nzOpen nzTitle="Form" nzIcon="form">
         <ul>
           <li nz-menu-item nzMatchRouter>

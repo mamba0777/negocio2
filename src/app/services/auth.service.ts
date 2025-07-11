@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, throwError, of } from 'rxjs';
 import { catchError, switchMap, tap, finalize } from 'rxjs/operators';
@@ -28,7 +28,8 @@ export interface RegisterData extends LoginCredentials {
 
 export interface AuthResponse {
   access_token: string;
-  // La API devuelve el token
+  refresh_token?: string;
+  user: User;
 }
 
 @Injectable({
@@ -37,30 +38,58 @@ export interface AuthResponse {
 export class AuthService {
   private readonly API_URL = 'https://api.escuelajs.co/api/v1';
   private readonly AUTH_URL = 'https://api.escuelajs.co/api/v1/auth';
-  private currentUser = signal<User | null>(null);
-  private isAuthenticated = signal<boolean>(false);
+  
+  // Señal para el usuario actual
+  private currentUserSignal = signal<User | null>(null);
+  private _isAuthenticatedSignal = signal<boolean>(false);
   private tokenExpirationTimer: any = null;
   private isLoading = signal<boolean>(false);
 
   // Exponer señales de solo lectura
-  user = this.currentUser.asReadonly();
-  loggedIn = computed(() => this.isAuthenticated());
-
-  // Método para verificar si el usuario está autenticado
-  isLoggedIn(): boolean {
-    return this.isAuthenticated();
+  user = this.currentUserSignal.asReadonly();
+  loggedIn = computed(() => this._isAuthenticatedSignal());
+  
+  // Método para verificar autenticación (para usar en guards)
+  isAuthenticated(): boolean {
+    return this._isAuthenticatedSignal();
+  }
+  
+  // Método para establecer el estado de autenticación
+  private setAuthenticated(value: boolean): void {
+    if (value) {
+      this._isAuthenticatedSignal.set(true);
+    } else {
+      this._isAuthenticatedSignal.set(false);
+    }
+  }
+  
+  // Getter para la señal de autenticación (solo lectura)
+  private get isAuthenticatedSignal() {
+    return this._isAuthenticatedSignal.asReadonly();
+  }
+  
+  // Propiedad para acceder al usuario actual de forma síncrona
+  get currentUser(): User | null {
+    return this.currentUserSignal();
   }
 
   private message = inject(NzMessageService);
   private http = inject(HttpClient);
   private router = inject(Router);
-
   private isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
 
   constructor() {
-    // Verificar la sesión al iniciar
+    // No verificar la sesión automáticamente al iniciar
+    // La verificación se hará cuando se intente acceder a rutas protegidas
     if (this.isBrowser) {
-      this.checkAuthStatus();
+      const token = localStorage.getItem('token');
+      if (token) {
+        // Si hay token, verificar si es válido
+        this.checkAuthStatus();
+      } else {
+        // Si no hay token, asegurarse de que el usuario esté deslogueado
+        this.logout();
+      }
     }
   }
 
@@ -68,13 +97,12 @@ export class AuthService {
     this.isLoading.set(true);
     
     // Configurar los headers para la petición
-    const headers = {
+    const headers = new HttpHeaders({
       'Content-Type': 'application/json',
       'Accept': 'application/json'
-    };
+    });
     
     // Datos para el login según la documentación de la API
-
     const loginData = {
       email: email,
       password: password
@@ -85,21 +113,27 @@ export class AuthService {
       loginData,
       { headers }
     ).pipe(
-      switchMap((response) => {
-        if (!response || !response.access_token) {
+      switchMap(response => {
+        if (!response.access_token) {
           throw new Error('No se recibió un token de acceso válido');
         }
         
+        // Obtener el token de acceso actual
+        const token = response.access_token;
+        
         // Guardar el token en el almacenamiento local
         if (this.isBrowser) {
-          localStorage.setItem('auth_token', response.access_token);
+          localStorage.setItem('token', token);
+          if (response.refresh_token) {
+            localStorage.setItem('refreshToken', response.refresh_token);
+          }
         }
         
         // Configurar los headers para las siguientes peticiones
-        const authHeaders = {
-          'Authorization': `Bearer ${response.access_token}`,
+        const authHeaders = new HttpHeaders({
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        };
+        });
         
         // Obtener el perfil del usuario
         return this.http.get<User>(`${this.API_URL}/auth/profile`, { 
@@ -107,29 +141,25 @@ export class AuthService {
         }).pipe(
           tap(user => {
             // Combinar la información del perfil con el token
-            const authenticatedUser = {
+            const authenticatedUser: User = {
               ...user,
-              accessToken: response.access_token
+              accessToken: token,
+              refreshToken: response.refresh_token
             };
             
             // Guardar el usuario autenticado
-            this.handleAuthentication(authenticatedUser);
-            
-            // Redirigir al dashboard después de un inicio de sesión exitoso
-            this.router.navigate(['/welcome']);
+            this.setAuthUser(authenticatedUser);
           })
         );
       }),
       catchError((error: HttpErrorResponse) => {
         console.error('Login error:', error);
-        let errorMessage = 'Error en el inicio de sesión';
+        let errorMessage = 'Error al iniciar sesión';
         
         if (error.status === 401) {
           errorMessage = 'Credenciales inválidas';
-        } else if (error.status === 400) {
-          errorMessage = 'Email o contraseña incorrectos';
         } else if (error.status === 0) {
-          errorMessage = 'No se pudo conectar al servidor. Verifica tu conexión a internet.';
+          errorMessage = 'No se pudo conectar con el servidor';
         } else if (error.error?.message) {
           errorMessage = error.error.message;
         }
@@ -141,173 +171,226 @@ export class AuthService {
     );
   }
 
-  private getUserProfile(): Observable<User> {
-    return this.http.get<User>(`${this.API_URL}/auth/profile`).pipe(
-      catchError((error: HttpErrorResponse) => {
-        console.error('Error al obtener perfil:', error);
-        return throwError(() => new Error('No se pudo cargar el perfil del usuario'));
-      })
-    );
-  }
-
-  private handleAuthentication(user: User) {
+  // Guardar el usuario autenticado
+  private setAuthUser(user: User): void {
     if (!this.isBrowser) return;
     
-    // Guardar el usuario en el estado
-    this.currentUser.set(user);
-    this.isAuthenticated.set(true);
-    
-    // Guardar en localStorage
-    if (this.isBrowser) {
-      // Guardar el usuario sin el token en el localStorage
+    try {
+      // Extraer solo los datos necesarios para evitar problemas de serialización
       const { accessToken, refreshToken, ...userWithoutTokens } = user;
-      localStorage.setItem('user', JSON.stringify(userWithoutTokens));
       
-      // Guardar el token de acceso por separado
+      // Asegurarse de que el rol esté definido
+      const userToStore = {
+        ...userWithoutTokens,
+        role: user.role || 'user' // Asignar 'user' como rol por defecto si no está definido
+      };
+      
+      console.log('Guardando usuario con rol:', userToStore.role); // Debug
+      
+      // Guardar en localStorage
+      localStorage.setItem('user', JSON.stringify(userToStore));
+      
       if (accessToken) {
-        localStorage.setItem('auth_token', accessToken);
+        localStorage.setItem('token', accessToken);
       }
-    }
-    
-    // Configurar tiempo de expiración del token (asumiendo 24 horas)
-    const expiresIn = 24 * 60 * 60 * 1000; // 24 horas en milisegundos
-    this.setLogoutTimer(expiresIn);
-    
-    // Notificar a otros componentes que la autenticación ha cambiado
-    if (this.isBrowser) {
-      window.dispatchEvent(new Event('storage'));
+      
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
+      
+      // Actualizar las señales
+      this.currentUserSignal.set({
+        ...userToStore,
+        accessToken,
+        refreshToken
+      });
+      
+      this.setAuthenticated(true);
+      
+      // Configurar el temporizador de cierre de sesión automático
+      this.setAutoLogout();
+      
+      // Redirigir al dashboard
+      this.router.navigate(['/welcome']);
+    } catch (error) {
+      console.error('Error al guardar la sesión del usuario:', error);
+      this.message.error('Error al guardar la sesión del usuario');
     }
   }
 
-  private checkAuthStatus() {
+  // Verificar el estado de autenticación al cargar la aplicación
+  private checkAuthStatus(): void {
     if (!this.isBrowser) return;
     
-    // Verificar si hay un token en localStorage
-    const token = localStorage.getItem('auth_token');
-    if (!token) {
+    const token = localStorage.getItem('token');
+    const userJson = localStorage.getItem('user');
+    
+    if (!token || !userJson) {
       this.logout();
       return;
     }
     
-    this.isLoading.set(true);
-    
-    // Configurar los headers para la petición
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    };
-    
-    // Intentar obtener el perfil del usuario
-    this.http.get<User>(`${this.API_URL}/auth/profile`, { headers }).subscribe({
-      next: (user) => {
-        // Si obtenemos el perfil exitosamente, el token es válido
-        const authenticatedUser = {
-          ...user,
-          accessToken: token
-        };
-        
-        this.currentUser.set(authenticatedUser);
-        this.isAuthenticated.set(true);
-        
-        // Guardar el usuario en localStorage sin el token
-        const { accessToken, refreshToken, ...userWithoutTokens } = authenticatedUser;
-        if (this.isBrowser) {
-          localStorage.setItem('user', JSON.stringify(userWithoutTokens));
-        }
-        
-        // Configurar el temporizador de expiración
-        const expiresIn = 24 * 60 * 60 * 1000; // 24 horas
-        this.setLogoutTimer(expiresIn);
-      },
-      error: (error) => {
-        console.error('Error al verificar autenticación:', error);
-        // Si hay un error al obtener el perfil, forzar logout
-        this.logout();
-      },
-      complete: () => {
-        this.isLoading.set(false);
-      }
-    });
-  }
-
-  logout() {
-    // Limpiar el estado local
-    this.clearLogoutTimer();
-    this.currentUser.set(null);
-    this.isAuthenticated.set(false);
-    
-    // Limpiar el almacenamiento local
-    if (this.isBrowser) {
-      localStorage.removeItem('user');
-      // Limpiar cualquier otro dato de sesión que pueda existir
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('auth_') || key.includes('token') || key.includes('user')) {
-          localStorage.removeItem(key);
+    try {
+      const user = JSON.parse(userJson);
+      const refreshToken = localStorage.getItem('refreshToken');
+      
+      // Asegurarse de que el rol esté definido
+      const userWithRole = {
+        ...user,
+        role: user.role || 'user' // Asignar 'user' como rol por defecto si no está definido
+      };
+      
+      // Configurar el usuario autenticado
+      const authenticatedUser: User = {
+        ...userWithRole,
+        accessToken: token,
+        refreshToken: refreshToken || undefined
+      };
+      
+      console.log('Verificando autenticación para usuario con rol:', userWithRole.role); // Debug
+      
+      // Verificar si el token es válido con una petición al perfil
+      const headers = new HttpHeaders({
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      });
+      
+      this.http.get<User>(`${this.API_URL}/auth/profile`, { headers }).subscribe({
+        next: (profile) => {
+          // Si llegamos aquí, el token es válido
+          console.log('Token válido para el usuario con rol:', userWithRole.role); // Debug
+          this.currentUserSignal.set({
+            ...userWithRole,
+            accessToken: token,
+            refreshToken: refreshToken || undefined
+          });
+          this.setAuthenticated(true);
+          this.setAutoLogout();
+        },
+        error: (error) => {
+          console.error('Error al verificar el token:', error);
+          this.logout();
         }
       });
       
-      // Limpiar también sessionStorage por si acaso
-      sessionStorage.clear();
-    }
-    
-    // Redirigir al login
-    this.router.navigate(['/auth/login']);
-    
-    // Opcional: Emitir un evento de cierre de sesión
-    if (this.isBrowser && typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('storage'));
+    } catch (error) {
+      console.error('Error al analizar los datos del usuario:', error);
+      this.logout();
     }
   }
 
-  private clearLogoutTimer() {
+  // Configurar el temporizador de cierre de sesión automático
+  private setAutoLogout(): void {
+    if (!this.isBrowser) return;
+    
+    // Limpiar el temporizador existente si lo hay
+    this.clearLogoutTimer();
+    
+    // Configurar un nuevo temporizador (24 horas por defecto)
+    const expiresIn = 24 * 60 * 60 * 1000; // 24 horas en milisegundos
+    this.tokenExpirationTimer = setTimeout(() => {
+      this.logout();
+      this.message.warning('Tu sesión ha expirado. Por favor, inicia sesión nuevamente.');
+    }, expiresIn);
+  }
+
+  // Limpiar el temporizador de cierre de sesión
+  private clearLogoutTimer(): void {
     if (this.tokenExpirationTimer) {
       clearTimeout(this.tokenExpirationTimer);
       this.tokenExpirationTimer = null;
     }
   }
 
-  private setLogoutTimer(expiresIn: number) {
+  // Cerrar sesión
+  logout(): void {
     if (!this.isBrowser) return;
     
-    this.tokenExpirationTimer = setTimeout(() => {
-      this.logout();
-    }, expiresIn);
+    // Limpiar el estado local
+    this.currentUserSignal.set(null);
+    this.setAuthenticated(false);
+    
+    // Limpiar el almacenamiento local
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    
+    // Limpiar el temporizador
+    this.clearLogoutTimer();
+    
+    // Redirigir al login
+    this.router.navigate(['/login']);
   }
 
+  // Obtener el token de acceso actual
   getToken(): string | null {
-    const user = this.currentUser();
-    return user?.accessToken || null;
+    if (!this.isBrowser) return null;
+    return localStorage.getItem('token');
   }
 
+  // Verificar si el usuario tiene un rol específico
   hasRole(role: string): boolean {
-    const user = this.currentUser();
+    const user = this.currentUser;
     return user?.role === role;
   }
 
-  //Actualiza el perfil del usuario
-  updateProfile(updates: Partial<User & { id: number }>): Observable<User> {
+  // Verificar si el usuario tiene al menos uno de los roles especificados
+  hasAnyRole(roles: string[]): boolean {
+    if (!roles || roles.length === 0) return true;
+    const user = this.currentUser;
+    if (!user || !user.role) return false;
+    return roles.includes(user.role);
+  }
+
+  // Actualizar el perfil del usuario
+  updateProfile(updates: Partial<User>): Observable<User> {
     this.isLoading.set(true);
+    const user = this.currentUser;
     
-    return this.http.put<User>(`${this.API_URL}/users/${updates.id}`, updates).pipe(
-      tap(user => {
-        // Actualizar el usuario en el estado local si es el usuario actual
-        const currentUser = this.currentUser();
-        if (currentUser && currentUser.id === updates.id) {
-          this.currentUser.set({ ...currentUser, ...user });
-        }
+    if (!user) {
+      this.message.error('No se pudo actualizar el perfil: usuario no autenticado');
+      return throwError(() => new Error('Usuario no autenticado'));
+    }
+    
+    const token = this.getToken();
+    if (!token) {
+      this.message.error('No se encontró el token de autenticación');
+      return throwError(() => new Error('Token no encontrado'));
+    }
+    
+    const headers = new HttpHeaders({
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    });
+    
+    return this.http.put<User>(
+      `${this.API_URL}/users/${user.id}`, 
+      updates,
+      { headers }
+    ).pipe(
+      tap(updatedUser => {
+        // Actualizar el usuario en el estado local
+        const updatedUserWithTokens: User = { 
+          ...updatedUser, 
+          accessToken: user.accessToken,
+          refreshToken: user.refreshToken
+        };
+        
+        this.currentUserSignal.set(updatedUserWithTokens);
+        
+        // Actualizar en localStorage
+        const { accessToken, refreshToken, ...userWithoutTokens } = updatedUserWithTokens;
+        localStorage.setItem('user', JSON.stringify(userWithoutTokens));
+        
         this.message.success('Perfil actualizado correctamente');
       }),
       catchError((error: HttpErrorResponse) => {
-        console.error('Update profile error:', error);
+        console.error('Error al actualizar perfil:', error);
         let errorMessage = 'Error al actualizar el perfil';
         
-        if (error.status === 400) {
-          errorMessage = 'Datos de actualización inválidos';
-        } else if (error.status === 401) {
+        if (error.status === 401) {
           errorMessage = 'No autorizado para realizar esta acción';
-        } else if (error.status === 404) {
-          errorMessage = 'Usuario no encontrado';
+          this.logout();
         } else if (error.error?.message) {
           errorMessage = error.error.message;
         }
@@ -319,35 +402,37 @@ export class AuthService {
     );
   }
 
-  // Método para registrar un nuevo usuario
-  register(userData: any): Observable<User> {
+  // Registrar un nuevo usuario
+  register(userData: RegisterData): Observable<User> {
     this.isLoading.set(true);
     
-    // Preparar los datos para el registro
+    // Asegurarse de que el rol sea 'customer' por defecto
     const registerData = {
-      name: userData.name,
-      email: userData.email,
-      password: userData.password,
-      avatar: userData.avatar || 'https://api.lorem.space/image/face?w=150&h=150',
-      role: 'customer' // Rol por defecto
+      ...userData,
+      role: 'customer',
+      avatar: userData.avatar || 'https://api.lorem.space/image/face?w=150&h=150'
     };
-
-    // crear el usuario
-    return this.http.post<User>(`${this.API_URL}/users/`, registerData).pipe(
-      tap(user => {
-        this.message.success('¡Registro exitoso!');
-        // No iniciamos sesión automáticamente, el usuario debe iniciar sesión manualmente
+    
+    const headers = new HttpHeaders({
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    });
+    
+    return this.http.post<User>(
+      `${this.API_URL}/users`, 
+      registerData,
+      { headers }
+    ).pipe(
+      tap(() => {
+        this.message.success('¡Registro exitoso! Por favor inicia sesión.');
+        this.router.navigate(['/login']);
       }),
       catchError((error: HttpErrorResponse) => {
-        console.error('Register error:', error);
-        let errorMessage = 'Error en el registro';
+        console.error('Error en el registro:', error);
+        let errorMessage = 'Error al registrar el usuario';
         
         if (error.status === 400) {
-          errorMessage = 'Datos de registro inválidos';
-        } else if (error.status === 409) {
-          errorMessage = 'El correo electrónico ya está registrado';
-        } else if (error.status === 0) {
-          errorMessage = 'No se pudo conectar al servidor';
+          errorMessage = 'El correo electrónico ya está en uso';
         } else if (error.error?.message) {
           errorMessage = error.error.message;
         }
