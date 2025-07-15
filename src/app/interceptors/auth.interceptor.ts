@@ -38,7 +38,7 @@ export class AuthInterceptor implements HttpInterceptor {
         if (error.status === 401) {
           this.message.error('Sesión expirada. Por favor, inicia sesión nuevamente.');
           localStorage.removeItem('authToken');
-          this.router.navigate(['/login']);
+          this.router.navigate(['/auth/login']);
         }
         return throwError(() => error);
       })

@@ -214,7 +214,6 @@ export class AuthService {
       this.router.navigate(['/welcome']);
     } catch (error) {
       console.error('Error al guardar la sesión del usuario:', error);
-      this.message.error('Error al guardar la sesión del usuario');
     }
   }
 
@@ -319,7 +318,7 @@ export class AuthService {
     this.clearLogoutTimer();
     
     // Redirigir al login
-    this.router.navigate(['/login']);
+    this.router.navigate(['/auth/login']);
   }
 
   // Obtener el token de acceso actual
@@ -425,7 +424,7 @@ export class AuthService {
     ).pipe(
       tap(() => {
         this.message.success('¡Registro exitoso! Por favor inicia sesión.');
-        this.router.navigate(['/login']);
+        this.router.navigate(['/regitro']);
       }),
       catchError((error: HttpErrorResponse) => {
         console.error('Error en el registro:', error);
