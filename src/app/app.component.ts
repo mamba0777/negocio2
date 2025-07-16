@@ -27,7 +27,6 @@ export class AppComponent implements OnInit, OnDestroy {
       const user = this.authService.user();
       const isAdmin = user?.role === 'admin';
       this.isAdmin.set(isAdmin);
-      console.log('Usuario actualizado. Es admin?', isAdmin, 'Usuario:', user);
     });
   }
 

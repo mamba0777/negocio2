@@ -38,6 +38,8 @@ export interface AuthResponse {
 export class AuthService {
   private readonly API_URL = 'https://api.escuelajs.co/api/v1';
   private readonly AUTH_URL = 'https://api.escuelajs.co/api/v1/auth';
+
+  // Métodos de autorización
   
   // Señal para el usuario actual
   private currentUserSignal = signal<User | null>(null);
@@ -61,11 +63,6 @@ export class AuthService {
     } else {
       this._isAuthenticatedSignal.set(false);
     }
-  }
-  
-  // Getter para la señal de autenticación (solo lectura)
-  private get isAuthenticatedSignal() {
-    return this._isAuthenticatedSignal.asReadonly();
   }
   
   // Propiedad para acceder al usuario actual de forma síncrona
@@ -340,67 +337,6 @@ export class AuthService {
     if (!user || !user.role) return false;
     return roles.includes(user.role);
   }
-
-  // Actualizar el perfil del usuario
-  updateProfile(updates: Partial<User>): Observable<User> {
-    this.isLoading.set(true);
-    const user = this.currentUser;
-    
-    if (!user) {
-      this.message.error('No se pudo actualizar el perfil: usuario no autenticado');
-      return throwError(() => new Error('Usuario no autenticado'));
-    }
-    
-    const token = this.getToken();
-    if (!token) {
-      this.message.error('No se encontró el token de autenticación');
-      return throwError(() => new Error('Token no encontrado'));
-    }
-    
-    const headers = new HttpHeaders({
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    });
-    
-    return this.http.put<User>(
-      `${this.API_URL}/users/${user.id}`, 
-      updates,
-      { headers }
-    ).pipe(
-      tap(updatedUser => {
-        // Actualizar el usuario en el estado local
-        const updatedUserWithTokens: User = { 
-          ...updatedUser, 
-          accessToken: user.accessToken,
-          refreshToken: user.refreshToken
-        };
-        
-        this.currentUserSignal.set(updatedUserWithTokens);
-        
-        // Actualizar en localStorage
-        const { accessToken, refreshToken, ...userWithoutTokens } = updatedUserWithTokens;
-        localStorage.setItem('user', JSON.stringify(userWithoutTokens));
-        
-        this.message.success('Perfil actualizado correctamente');
-      }),
-      catchError((error: HttpErrorResponse) => {
-        console.error('Error al actualizar perfil:', error);
-        let errorMessage = 'Error al actualizar el perfil';
-        
-        if (error.status === 401) {
-          errorMessage = 'No autorizado para realizar esta acción';
-          this.logout();
-        } else if (error.error?.message) {
-          errorMessage = error.error.message;
-        }
-        
-        this.message.error(errorMessage);
-        return throwError(() => new Error(errorMessage));
-      }),
-      finalize(() => this.isLoading.set(false))
-    );
-  }
-
   // Registrar un nuevo usuario
   register(userData: RegisterData): Observable<User> {
     this.isLoading.set(true);
@@ -432,6 +368,72 @@ export class AuthService {
         
         if (error.status === 400) {
           errorMessage = 'El correo electrónico ya está en uso';
+        } else if (error.error?.message) {
+          errorMessage = error.error.message;
+        }
+        
+        this.message.error(errorMessage);
+        return throwError(() => new Error(errorMessage));
+      }),
+      finalize(() => this.isLoading.set(false))
+    );
+  }
+  // Método para actualizar el perfil de cualquier usuario por ID
+  updateProfile(userId: number, updates: Partial<User>): Observable<User> {
+    this.isLoading.set(true);
+    
+    if (!userId) {
+      this.isLoading.set(false);
+      return throwError(() => new Error('ID de usuario no proporcionado'));
+    }
+
+    // Crear un objeto con solo los campos que se van a actualizar
+    const updateData: any = {};
+    
+    // Solo incluir los campos que tienen valor y se permiten actualizar
+    if (updates.name) updateData.name = updates.name;
+    if (updates.password) updateData.password = updates.password;
+    if (updates.avatar) updateData.avatar = updates.avatar;
+
+    const token = this.getToken();
+    if (!token) {
+      this.isLoading.set(false);
+      return throwError(() => new Error('No autenticado'));
+    }
+    
+    const headers = new HttpHeaders({
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    });
+
+    return this.http.put<User>(`${this.API_URL}/users/${userId}`, updateData, { headers }).pipe(
+      tap(updatedUser => {
+        // Si es el perfil del usuario actual, actualizar el estado local
+        const currentUser = this.currentUser;
+        if (currentUser?.id === userId) {
+          const updatedUserWithTokens: User = { 
+            ...updatedUser,
+            accessToken: currentUser.accessToken,
+            refreshToken: currentUser.refreshToken
+          };
+          this.currentUserSignal.set(updatedUserWithTokens);
+          
+          // Actualizar en localStorage (sin incluir los tokens)
+          const { accessToken, refreshToken, ...userWithoutTokens } = updatedUserWithTokens;
+          localStorage.setItem('user', JSON.stringify(userWithoutTokens));
+        }
+        this.message.success('Perfil actualizado correctamente');
+      }),
+      catchError((error: HttpErrorResponse) => {
+        console.error('Error al actualizar perfil:', error);
+        let errorMessage = 'Error al actualizar el perfil';
+        
+        if (error.status === 400) {
+          errorMessage = 'Datos inválidos';
+        } else if (error.status === 401) {
+          errorMessage = 'No autorizado';
+        } else if (error.status === 0) {
+          errorMessage = 'No se pudo conectar al servidor';
         } else if (error.error?.message) {
           errorMessage = error.error.message;
         }

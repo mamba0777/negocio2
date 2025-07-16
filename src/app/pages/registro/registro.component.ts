@@ -260,7 +260,8 @@ export class RegistroComponent implements OnInit {
   }
 
   private actualizarUsuario(): void {
-    if (!this.editandoUsuario()?.id) {
+    const userId = this.editandoUsuario()?.id;
+    if (!userId) {
       this.message.error('No se puede actualizar el usuario: ID no válido');
       this.cargando.set(false);
       return;
@@ -268,7 +269,7 @@ export class RegistroComponent implements OnInit {
 
     const { confirmPassword, ...userData } = this.form.value;
 
-    this.authService.updateProfile(userData).subscribe({
+    this.authService.updateProfile(userId, userData).subscribe({
       next: (usuario) => {
         this.message.success('¡Usuario actualizado exitosamente!');
         this.volverALista();
@@ -308,12 +309,15 @@ export class RegistroComponent implements OnInit {
     const { confirmPassword, ...updates } = this.form.value;
     
     // Si estamos editando un usuario, usar su ID
-    if (this.editandoUsuario()) {
-      updates.id = this.editandoUsuario()?.id;
+    const userId = this.editandoUsuario()?.id;
+    if (!userId) {
+      this.message.error('No se puede actualizar el perfil: ID de usuario no válido');
+      this.cargando.set(false);
+      return;
     }
     
     this.cargando.set(true);
-    this.authService.updateProfile(updates).subscribe({
+    this.authService.updateProfile(userId, updates).subscribe({
       next: () => {
         this.message.success('Perfil actualizado correctamente');
         this.volverALista();

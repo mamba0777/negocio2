@@ -1,5 +1,5 @@
 import { Directive, Input, TemplateRef, ViewContainerRef, inject } from '@angular/core';
-import { AuthzService } from '../services/authz.service';
+import { AuthService } from '../services/auth.service';
 
 @Directive({
   selector: '[appHasRole]',
@@ -7,11 +7,11 @@ import { AuthzService } from '../services/authz.service';
 export class HasRoleDirective {
   private templateRef = inject(TemplateRef<any>);
   private viewContainer = inject(ViewContainerRef);
-  private authzService = inject(AuthzService);
+  private authService = inject(AuthService);
 
   @Input() set appHasRole(role: string | string[]) {
     const roles = Array.isArray(role) ? role : [role];
-    const hasRole = this.authzService.hasAnyRole(roles);
+    const hasRole = this.authService.hasAnyRole(roles);
     
     if (hasRole) {
       this.viewContainer.createEmbeddedView(this.templateRef);
