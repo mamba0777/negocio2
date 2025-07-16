@@ -38,11 +38,15 @@
                 <nz-tag [nzColor]="getRoleColor(data.role)">{{ data.role }}</nz-tag>
               </td>
               <td>
-                <button nz-button nzType="link" nzSize="small" (click)="editarUsuario(data)">
+                <button nz-button nzType="link" nzSize="small" 
+                        (click)="editarUsuario($event, data)"
+                        [disabled]="!authService.isAdmin()">
                   <i nz-icon nzType="edit" nzTheme="outline"></i>
                 </button>
                 <nz-divider nzType="vertical"></nz-divider>
-                <button nz-button nzType="link" nzSize="small" nzDanger (click)="eliminarUsuario(data.id)">
+                <button nz-button nzType="link" nzSize="small" nzDanger 
+                        (click)="eliminarUsuario($event, data.id)"
+                        [disabled]="!authService.isAdmin()">
                   <i nz-icon nzType="delete" nzTheme="outline"></i>
                 </button>
               </td>
@@ -82,19 +86,28 @@
             </nz-form-control>
           </nz-form-item>
 
-          <!-- Campo de rol -->
-          <nz-form-item>
-            <nz-form-control nzErrorTip="Por favor seleccione un rol">
-              <nz-select 
-                nzSize="large" 
-                formControlName="role"
-                nzPlaceHolder="Seleccione un rol"
-              >
-                <nz-option nzValue="customer" nzLabel="Cliente"></nz-option>
-                <nz-option nzValue="admin" nzLabel="Administrador"></nz-option>
-              </nz-select>
-            </nz-form-control>
-          </nz-form-item>
+          <!-- Selector de roles (solo para administradores) -->
+          @if (authService.isAdmin()) {
+            <nz-form-item>
+              <nz-form-label nzFor="role" nzRequired>Rol</nz-form-label>
+              <nz-form-control nzErrorTip="Por favor seleccione un rol">
+                <nz-select
+                  id="role"
+                  formControlName="role"
+                  nzPlaceHolder="Seleccione un rol"
+                  nzSize="large"
+                >
+                  <nz-option nzValue="admin" nzLabel="Administrador"></nz-option>
+                  <nz-option nzValue="editor" nzLabel="Editor"></nz-option>
+                  <nz-option nzValue="viewer" nzLabel="Visualizador"></nz-option>
+                  <nz-option nzValue="customer" nzLabel="Cliente"></nz-option>
+                </nz-select>
+              </nz-form-control>
+            </nz-form-item>
+          } @else {
+            <!-- Campo oculto para el rol de cliente por defecto -->
+            <input type="hidden" formControlName="role" value="customer">
+          }
           
           <nz-form-item>
             <nz-form-control nzErrorTip="La contraseña debe tener al menos 6 caracteres">

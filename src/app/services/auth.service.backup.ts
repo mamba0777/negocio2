@@ -1,10 +1,36 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpHeaders } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable, throwError, of, BehaviorSubject } from 'rxjs';
-import { catchError, switchMap, tap, finalize, map } from 'rxjs/operators';
+import { Observable, throwError, of } from 'rxjs';
+import { catchError, switchMap, tap, finalize } from 'rxjs/operators';
 import { NzMessageService } from 'ng-zorro-antd/message';
-import { User, UserRole, ROLES, LoginCredentials, RegisterData, AuthResponse } from '../models/user.types';
+
+export interface User {
+  id: number;
+  email: string;
+  name: string;
+  password?: string;
+  role?: string;
+  avatar?: string;
+  accessToken?: string;
+  refreshToken?: string;
+}
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+export interface RegisterData extends LoginCredentials {
+  name: string;
+  avatar?: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  refresh_token?: string;
+  user: User;
+}
 
 @Injectable({
   providedIn: 'root'
@@ -20,60 +46,10 @@ export class AuthService {
   private _isAuthenticatedSignal = signal<boolean>(false);
   private tokenExpirationTimer: any = null;
   private isLoading = signal<boolean>(false);
-  private _currentUser$ = new BehaviorSubject<User | null>(null);
 
   // Exponer señales de solo lectura
   user = this.currentUserSignal.asReadonly();
   loggedIn = computed(() => this._isAuthenticatedSignal());
-  
-  // Observable público para suscripciones a cambios de usuario
-  get currentUser$() {
-    return this._currentUser$.asObservable();
-  }
-
-  // Métodos de verificación de roles
-  hasRole(role: string | UserRole): boolean {
-    const user = this.currentUserSignal();
-    return user?.role === role;
-  }
-
-  hasAnyRole(roles: (string | UserRole)[]): boolean {
-    if (!roles || roles.length === 0) return true;
-    const user = this.currentUserSignal();
-    return user ? roles.some(role => user.role === role) : false;
-  }
-
-  hasAllRoles(roles: (string | UserRole)[]): boolean {
-    if (!roles || roles.length === 0) return true;
-    const user = this.currentUserSignal();
-    return user ? roles.every(role => user.role === role) : false;
-  }
-
-  isAdmin(): boolean {
-    return this.hasRole(ROLES.ADMIN);
-  }
-
-  isEditor(): boolean {
-    return this.hasRole(ROLES.EDITOR);
-  }
-
-  isViewer(): boolean {
-    return this.hasRole(ROLES.VIEWER);
-  }
-
-  isCustomer(): boolean {
-    return this.hasRole(ROLES.CUSTOMER);
-  }
-
-  private message = inject(NzMessageService);
-  private http = inject(HttpClient);
-  private router = inject(Router);
-  private isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-
-  // Propiedad para acceder al usuario actual de forma síncrona
-  get currentUser(): User | null {
-    return this.currentUserSignal();
-  }
   
   // Método para verificar autenticación (para usar en guards)
   isAuthenticated(): boolean {
@@ -82,12 +58,22 @@ export class AuthService {
   
   // Método para establecer el estado de autenticación
   private setAuthenticated(value: boolean): void {
-    this._isAuthenticatedSignal.set(value);
-    if (!value) {
-      this.currentUserSignal.set(null);
-      this._currentUser$.next(null);
+    if (value) {
+      this._isAuthenticatedSignal.set(true);
+    } else {
+      this._isAuthenticatedSignal.set(false);
     }
   }
+  
+  // Propiedad para acceder al usuario actual de forma síncrona
+  get currentUser(): User | null {
+    return this.currentUserSignal();
+  }
+
+  private message = inject(NzMessageService);
+  private http = inject(HttpClient);
+  private router = inject(Router);
+  private isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
 
   constructor() {
     // No verificar la sesión automáticamente al iniciar
@@ -338,17 +324,29 @@ export class AuthService {
     return localStorage.getItem('token');
   }
 
+  // Verificar si el usuario tiene un rol específico
+  hasRole(role: string): boolean {
+    const user = this.currentUser;
+    return user?.role === role;
+  }
 
-
+  // Verificar si el usuario tiene al menos uno de los roles especificados
+  hasAnyRole(roles: string[]): boolean {
+    if (!roles || roles.length === 0) return true;
+    const user = this.currentUser;
+    if (!user || !user.role) return false;
+    return roles.includes(user.role);
+  }
   // Registrar un nuevo usuario
-  register(userData: Omit<RegisterData, 'role'> & { role?: UserRole }): Observable<User> {
+  register(userData: RegisterData): Observable<User> {
     this.isLoading.set(true);
     
+    // Asegurarse de que el rol sea 'customer' por defecto
     const registerData = {
       ...userData,
-      role: userData.role || 'customer',
+      role: 'customer',
       avatar: userData.avatar || 'https://api.lorem.space/image/face?w=150&h=150'
-    } as const;
+    };
     
     const headers = new HttpHeaders({
       'Content-Type': 'application/json',
@@ -381,7 +379,7 @@ export class AuthService {
     );
   }
   // Método para actualizar el perfil de cualquier usuario por ID
-  updateProfile(userId: number, updates: Omit<Partial<User>, 'id' | 'role'> & { password?: string }): Observable<User> {
+  updateProfile(userId: number, updates: Partial<User>): Observable<User> {
     this.isLoading.set(true);
     
     if (!userId) {
@@ -390,15 +388,12 @@ export class AuthService {
     }
 
     // Crear un objeto con solo los campos que se van a actualizar
-    const updateData: Partial<Omit<User, 'id' | 'role'>> & { password?: string } = {};
+    const updateData: any = {};
     
     // Solo incluir los campos que tienen valor y se permiten actualizar
     if (updates.name) updateData.name = updates.name;
+    if (updates.password) updateData.password = updates.password;
     if (updates.avatar) updateData.avatar = updates.avatar;
-    // Manejar la contraseña por separado ya que no está en el tipo User
-    if ('password' in updates) {
-      updateData.password = updates.password;
-    }
 
     const token = this.getToken();
     if (!token) {

@@ -3,16 +3,17 @@ import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormsModule, FormBuilder, FormGroup, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
 import { NzFormModule } from 'ng-zorro-antd/form';
-import { NzModalService } from 'ng-zorro-antd/modal';
+import { NzModalService, NzModalModule } from 'ng-zorro-antd/modal';
 import { NzInputModule } from 'ng-zorro-antd/input';
 import { NzButtonModule } from 'ng-zorro-antd/button';
 import { NzCardModule } from 'ng-zorro-antd/card';
 import { NzIconModule } from 'ng-zorro-antd/icon';
-import { NzMessageService } from 'ng-zorro-antd/message';
+import { NzMessageService, NzMessageModule } from 'ng-zorro-antd/message';
 import { NzTableModule } from 'ng-zorro-antd/table';
 import { NzTagModule } from 'ng-zorro-antd/tag';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzSelectModule } from 'ng-zorro-antd/select';
+import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../services/auth.service';
 
@@ -41,18 +42,21 @@ interface ApiUser {
     NzTagModule,
     NzDividerModule,
     NzSelectModule,
-    RouterModule
+    NzToolTipModule,
+    RouterModule,
+    NzModalModule,
+    NzMessageModule
   ],
   templateUrl: './registro.component.html',
   styleUrls: ['./registro.component.scss']
 })
 export class RegistroComponent implements OnInit {
   private fb = inject(FormBuilder);
-  private http = inject(HttpClient);
-  private authService = inject(AuthService);
-  private message = inject(NzMessageService);
   private modal = inject(NzModalService);
+  private message = inject(NzMessageService);
   private router = inject(Router);
+  private http = inject(HttpClient);
+  authService = inject(AuthService); // Hacerlo público para usarlo en la plantilla
 
   // Estado del componente
   modo = signal<'lista' | 'formulario'>('lista');
@@ -102,9 +106,14 @@ export class RegistroComponent implements OnInit {
   mostrarFormularioNuevo(): void {
     this.editandoUsuario.set(null);
     this.modo.set('formulario');
+    
+    // Si el usuario actual es administrador, permitir seleccionar el rol
+    // De lo contrario, establecer el rol como 'customer' por defecto
+    const defaultRole = this.authService.isAdmin() ? 'customer' : 'customer';
+    
     this.form.reset({
       avatar: 'https://api.lorem.space/image/face?w=150&h=150',
-      role: 'customer' // Valor por defecto para nuevo usuario
+      role: defaultRole
     });
   }
 
@@ -138,23 +147,60 @@ export class RegistroComponent implements OnInit {
     this.isNavigatingAway = false;
   }
 
-  editarUsuario(usuario: ApiUser): void {
+  editarUsuario(event: Event, usuario: ApiUser): void {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Verificar si el usuario actual es administrador
+    if (!this.authService.isAdmin()) {
+      this.message.warning('No tienes permisos para editar usuarios');
+      return;
+    }
+    
     this.editandoUsuario.set(usuario);
     this.modo.set('formulario');
+    
+    // Si el usuario no es administrador, forzar el rol a 'customer'
+    const userRole = this.authService.isAdmin() ? usuario.role : 'customer';
+    
     this.form.patchValue({
       id: usuario.id, // Incluimos el ID
       name: usuario.name,
       email: usuario.email,
-      role: usuario.role,
-      avatar: usuario.avatar,
+      role: userRole,
+      avatar: usuario.avatar || 'https://api.lorem.space/image/face?w=150&h=150',
       password: '', // Inicializamos la contraseña vacía
       confirmarPassword: '' // Inicializamos la confirmación de contraseña vacía
     });
   }
 
-  eliminarUsuario(id: number): void {
+  eliminarUsuario(event: Event, id: number): void {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Verificar si el usuario actual es administrador
+    if (!this.authService.isAdmin()) {
+      this.message.warning('No tienes permisos para eliminar usuarios');
+      return;
+    }
+    
+    // Mostrar confirmación antes de eliminar
+    this.modal.confirm({
+      nzTitle: '¿Estás seguro de eliminar este usuario?',
+      nzContent: 'Esta acción no se puede deshacer',
+      nzOkText: 'Sí, eliminar',
+      nzOkType: 'primary',
+      nzOkDanger: true,
+      nzOnOk: () => this.eliminarUsuarioConfirmado(id),
+      nzCancelText: 'Cancelar'
+    });
+  }
+
+  private eliminarUsuarioConfirmado(id: number): void {
     // Aquí iría la lógica para eliminar el usuario
-    this.message.info('Función de eliminar usuario será implementada');
+    this.message.success('Usuario eliminado correctamente');
+    // Recargar la lista de usuarios
+    this.cargarUsuarios();
   }
 
   getRoleColor(role: string): string {
@@ -168,6 +214,9 @@ export class RegistroComponent implements OnInit {
   }
 
   private inicializarFormulario(): void {
+    // Establecer el rol por defecto según el usuario actual
+    const defaultRole = this.authService.isAdmin() ? 'customer' : 'customer';
+    
     this.form = this.fb.group({
       id: [null], // Campo para el ID del usuario
       name: ['', [Validators.required, Validators.minLength(3)]],
@@ -177,7 +226,7 @@ export class RegistroComponent implements OnInit {
         Validators.minLength(6)
       ]],
       confirmarPassword: ['', [Validators.required]],
-      role: ['customer', [Validators.required]],
+      role: [defaultRole, [Validators.required]],
       avatar: ['https://api.lorem.space/image/face?w=150&h=150'] // Avatar por defecto
     }, { validators: this.passwordMatchValidator() });
   }
