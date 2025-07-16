@@ -74,6 +74,77 @@ export class AuthService {
   get currentUser(): User | null {
     return this.currentUserSignal();
   }
+
+  // Obtener el token de acceso del almacenamiento local
+  getAccessToken(): string | null {
+    if (!this.isBrowser) return null;
+    return localStorage.getItem('token');
+  }
+
+  // Obtener el token de actualización del almacenamiento local
+  getRefreshToken(): string | null {
+    if (!this.isBrowser) return null;
+    return localStorage.getItem('refreshToken');
+  }
+
+  // Establecer ambos tokens en el almacenamiento local
+  setTokens(accessToken: string, refreshToken: string): void {
+    if (!this.isBrowser) return;
+    
+    localStorage.setItem('token', accessToken);
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
+    }
+    
+    // Actualizar el estado de autenticación
+    this.setAuthenticated(!!accessToken);
+    
+    // Si hay un token, verificar el estado de autenticación
+    if (accessToken) {
+      this.checkAuthStatus().subscribe({
+        error: (error: Error) => console.error('Error al verificar el estado de autenticación:', error)
+      });
+    }
+  }
+
+  // Renovar el token de acceso usando el token de actualización
+  refreshToken(): Promise<{ accessToken: string; refreshToken: string }> {
+    return new Promise((resolve, reject) => {
+      const refreshToken = this.getRefreshToken();
+      
+      if (!refreshToken) {
+        this.logout();
+        return reject(new Error('No hay token de actualización disponible'));
+      }
+      
+      this.http.post<AuthResponse>(`${this.AUTH_URL}/refresh-token`, { refreshToken })
+        .pipe(
+          catchError(error => {
+            this.logout();
+            return throwError(() => error);
+          })
+        )
+        .subscribe({
+          next: (response) => {
+            if (response.access_token) {
+              // Guardar los nuevos tokens
+              this.setTokens(response.access_token, response.refresh_token || '');
+              resolve({
+                accessToken: response.access_token,
+                refreshToken: response.refresh_token || ''
+              });
+            } else {
+              reject(new Error('No se pudo renovar el token'));
+            }
+          },
+          error: (error) => {
+            console.error('Error al renovar el token:', error);
+            this.logout();
+            reject(error);
+          }
+        });
+    });
+  }
   
   // Método para verificar autenticación (para usar en guards)
   isAuthenticated(): boolean {
@@ -229,65 +300,66 @@ export class AuthService {
   }
 
   // Verificar el estado de autenticación al cargar la aplicación
-  private checkAuthStatus(): void {
-    if (!this.isBrowser) return;
-    
-    const token = localStorage.getItem('token');
-    const userJson = localStorage.getItem('user');
-    
-    if (!token || !userJson) {
-      this.logout();
-      return;
-    }
-    
-    try {
-      const user = JSON.parse(userJson);
-      const refreshToken = localStorage.getItem('refreshToken');
+  private checkAuthStatus(): Observable<void> {
+    return new Observable(subscriber => {
+      if (!this.isBrowser) {
+        subscriber.error(new Error('Navegador no disponible'));
+        return;
+      }
       
-      // Asegurarse de que el rol esté definido
-      const userWithRole = {
-        ...user,
-        role: user.role || 'user' // Asignar 'user' como rol por defecto si no está definido
-      };
+      const token = localStorage.getItem('token');
+      const userJson = localStorage.getItem('user');
       
-      // Configurar el usuario autenticado
-      const authenticatedUser: User = {
-        ...userWithRole,
-        accessToken: token,
-        refreshToken: refreshToken || undefined
-      };
+      if (!token || !userJson) {
+        this.logout();
+        subscriber.error(new Error('No hay token o usuario almacenado'));
+        return;
+      }
       
-      console.log('Verificando autenticación para usuario con rol:', userWithRole.role); // Debug
-      
-      // Verificar si el token es válido con una petición al perfil
-      const headers = new HttpHeaders({
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      });
-      
-      this.http.get<User>(`${this.API_URL}/auth/profile`, { headers }).subscribe({
-        next: (profile) => {
-          // Si llegamos aquí, el token es válido
-          console.log('Token válido para el usuario con rol:', userWithRole.role); // Debug
-          this.currentUserSignal.set({
-            ...userWithRole,
-            accessToken: token,
-            refreshToken: refreshToken || undefined
-          });
-          this.setAuthenticated(true);
-          this.setAutoLogout();
-        },
-        error: (error) => {
-          console.error('Error al verificar el token:', error);
-          this.logout();
-        }
-      });
-      
-    } catch (error) {
-      console.error('Error al analizar los datos del usuario:', error);
-      this.logout();
-    }
-  }
+      try {
+        const user = JSON.parse(userJson);
+        const refreshToken = localStorage.getItem('refreshToken');
+        
+        // Asegurarse de que el rol esté definido
+        const userWithRole = {
+          ...user,
+          role: user.role || 'user' // Asignar 'user' como rol por defecto si no está definido
+        };
+        
+        // Verificar si el token es válido con una petición al perfil
+        const headers = new HttpHeaders({
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        });
+        
+        this.http.get<User>(`${this.API_URL}/auth/profile`, { headers }).subscribe({
+          next: (profile) => {
+            // Si llegamos aquí, el token es válido
+            console.log('Token válido para el usuario con rol:', userWithRole.role); // Debug
+            this.currentUserSignal.set({
+              ...userWithRole,
+              accessToken: token,
+              refreshToken: refreshToken || undefined
+            });
+            this.setAuthenticated(true);
+            this.setAutoLogout();
+            subscriber.next();
+            subscriber.complete();
+          },
+          error: (error: any) => {
+            console.error('Error al verificar el token:', error);
+            this.logout();
+            subscriber.error(error);
+          }
+        });
+        
+      } catch (error) {
+        console.error('Error al verificar la autenticación:', error);
+        this.logout();
+        subscriber.error(error);
+      }
+  });
+}
 
   // Configurar el temporizador de cierre de sesión automático
   private setAutoLogout(): void {
